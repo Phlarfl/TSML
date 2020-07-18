@@ -22,7 +22,7 @@ namespace Installer
     public partial class MainWindow : Window
     {
         private const string GAME = "Townscaper";
-        private readonly int[] VERSION = new int[] { 1, 1, 0 };
+        private readonly int[] VERSION = new int[] { 1, 0, 0 };
 
         private const string SETTINGS_URL = "https://gist.github.com/Phlarfl/7e19181c4a2d3802d88c73bbd000ebf1/raw";
         private const string STEAM_REGISTRY = @"HKEY_CURRENT_USER\Software\Valve\Steam";
