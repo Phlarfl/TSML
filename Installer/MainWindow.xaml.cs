@@ -10,18 +10,9 @@ using System.IO;
 using System.Linq;
 using System.Net;
 using System.Reflection;
-using System.Text;
 using System.Threading;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
 
 namespace Installer
 {
@@ -47,9 +38,9 @@ namespace Installer
 
         private bool Reinstalling = false;
 
-        private string AbsoluteInstallDirectory;
+        private readonly string AbsoluteInstallDirectory;
 
-        private Dictionary<Control, bool> States = new Dictionary<Control, bool>();
+        private readonly Dictionary<Control, bool> States = new Dictionary<Control, bool>();
 
         public MainWindow()
         {
@@ -216,18 +207,19 @@ namespace Installer
 
         private void ChangeState(bool state)
         {
-            List<Control> controls = new List<Control>();
+            List<Control> controls = new List<Control>
+            {
+                BtnInstallModLoader,
+                BtnUninstallModLoader,
 
-            controls.Add(BtnInstallModLoader);
-            controls.Add(BtnUninstallModLoader);
+                BtnRefreshMods,
+                BtnRefreshInstalled,
+                BtnInstallMod,
+                BtnUninstallMod,
 
-            controls.Add(BtnRefreshMods);
-            controls.Add(BtnRefreshInstalled);
-            controls.Add(BtnInstallMod);
-            controls.Add(BtnUninstallMod);
-
-            controls.Add(LbxMods);
-            controls.Add(LbxInstalled);
+                LbxMods,
+                LbxInstalled
+            };
 
             States.Clear();
             foreach (Control control in controls)

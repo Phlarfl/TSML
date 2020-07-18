@@ -1,10 +1,5 @@
 ﻿using Mono.Cecil;
 using Mono.Collections.Generic;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Installer
 {
@@ -15,7 +10,7 @@ namespace Installer
             foreach (var item in collection)
                 if (full ? item.FullName == name : item.Name == name)
                     return item;
-            return default(T);
+            return default;
         }
     }
 }
