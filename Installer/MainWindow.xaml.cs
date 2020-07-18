@@ -5,6 +5,7 @@ using Mono.Cecil.Cil;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -30,9 +31,9 @@ namespace Installer
     public partial class MainWindow : Window
     {
         private const string GAME = "Townscaper";
-        private readonly int[] Version = new int[] { 1, 1, 0 };
+        private readonly int[] VERSION = new int[] { 1, 1, 0 };
 
-        private const string SETTINGS_URL = "https://gist.githubusercontent.com/Phlarfl/e504a0ac94fd004ec02ebaaccd3aa335/raw";
+        private const string SETTINGS_URL = "https://gist.github.com/Phlarfl/7e19181c4a2d3802d88c73bbd000ebf1/raw";
         private const string STEAM_REGISTRY = @"HKEY_CURRENT_USER\Software\Valve\Steam";
         private const string STEAM_CONFIG = "config/config.vdf";
 
@@ -54,7 +55,11 @@ namespace Installer
         {
             InitializeComponent();
 
-            // todo: download config
+            using (var client = new WebClient())
+            {
+                client.DownloadStringCompleted += OnSettingsDownloadComplete;
+                client.DownloadStringAsync(new Uri(SETTINGS_URL));
+            }
 
             AbsoluteInstallDirectory = GetAbsoluteInstallDirectory();
             if (AbsoluteInstallDirectory == null)
@@ -342,7 +347,11 @@ namespace Installer
         private void OnStringDownloadComplete(object sender, DownloadStringCompletedEventArgs e)
         {
             string json = e.Result.ToString();
-            // todo: parse json
+            Settings settings = Newtonsoft.Json.JsonConvert.DeserializeObject<Settings>(json);
+            if (settings == null)
+                MessageBox.Show("Failed to parse mod list");
+            foreach (Plugin plugin in settings.modlist)
+                LbxMods.Items.Add(plugin);
 
             PgbLoad.IsIndeterminate = false;
             PgbLoad.Value = 0;
@@ -360,7 +369,18 @@ namespace Installer
         private void OnSettingsDownloadComplete(object sender, DownloadStringCompletedEventArgs e)
         {
             string json = e.Result.ToString();
-            // todo: parse settings and check version for new
+            Settings settings = Newtonsoft.Json.JsonConvert.DeserializeObject<Settings>(json);
+            if (settings == null)
+                MessageBox.Show("Failed to parse settings");
+
+            if (settings.version[0] > VERSION[0]
+                || (settings.version[0] == VERSION[0] && settings.version[1] > VERSION[1])
+                || (settings.version[0] == VERSION[0] && settings.version[1] == VERSION[1] && settings.version[2] > VERSION[2]))
+            {
+                MessageBox.Show("There is a newer version of the TSML Installer, please update to get the latest features");
+                Process.Start("https://phlarfl.github.io/TSML");
+                Close();
+            }
         }
     }
 }
