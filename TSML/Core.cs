@@ -29,6 +29,11 @@ namespace TSML
             {
                 AutoFlush = true
             });
+            Console.SetError(new StreamWriter(Console.OpenStandardError())
+            {
+                AutoFlush = true
+            });
+            Console.SetIn(new StreamReader(Console.OpenStandardInput()));
 
             Console.WriteLine("TSML Initialized");
 
@@ -56,31 +61,33 @@ namespace TSML
                 try
                 {
                     asm = Assembly.Load(File.ReadAllBytes(file));
-                } catch (ArgumentNullException e)
+                } catch (Exception e)
                 {
                     Console.WriteLine($"Failed to load plugin {file}");
-                    Console.WriteLine(e.StackTrace);
-                    continue;
-                } catch (BadImageFormatException e)
-                {
-                    Console.WriteLine($"Failed to load plugin {file}");
-                    Console.WriteLine(e.StackTrace);
+                    Console.WriteLine(e);
                     continue;
                 }
                 Type[] types;
                 try
                 {
                     types = asm.GetExportedTypes();
-                } catch (NotSupportedException e)
+                } catch (ReflectionTypeLoadException e)
+                {
+                    Console.WriteLine($"Load Exceptions: {e.LoaderExceptions.Length}");
+                    foreach (Exception loaderEx in e.LoaderExceptions)
+                        Console.WriteLine(loaderEx);
+                    continue;
+                } catch (Exception e)
                 {
                     Console.WriteLine($"Failed to get exported types for plugin {file}");
-                    Console.WriteLine(e.StackTrace);
+                    Console.WriteLine(e);
                     continue;
                 }
                 foreach (var type in types)
                     if (typeof(Plugin).IsAssignableFrom(type))
                         plugins.Add(type);
             }
+            Console.WriteLine($"Adding plugin components ({plugins.Count})");
             foreach (Type plugin in plugins)
                 gameObject.AddComponent(plugin);
         }

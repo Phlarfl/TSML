@@ -2,6 +2,7 @@
 using Microsoft.Win32;
 using Mono.Cecil;
 using Mono.Cecil.Cil;
+using Placemaker;
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
@@ -13,6 +14,7 @@ using System.Reflection;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
+using TSML;
 
 namespace Installer
 {
@@ -51,7 +53,7 @@ namespace Installer
                 client.DownloadStringCompleted += OnSettingsDownloadComplete;
                 client.DownloadStringAsync(new Uri(SETTINGS_URL));
             }
-
+             
             AbsoluteInstallDirectory = GetAbsoluteInstallDirectory();
             if (AbsoluteInstallDirectory == null)
             {
@@ -84,12 +86,12 @@ namespace Installer
         private void BtnUninstallModLoader_Click(object sender, RoutedEventArgs e)
         {
             ChangeState(false);
-            
+
             File.Copy(GetAssemblyBackupLocation(), GetAssemblyLocation(), true);
             if (File.Exists(GetAssemblyBackupLocation()))
                 File.Delete(GetAssemblyBackupLocation());
-            if (Directory.Exists(GetPluginDirectory()))
-                Directory.Delete(GetPluginDirectory(), true);
+            if (File.Exists($"{GetManagedLocation()}/TSML.dll"))
+                File.Delete($"{GetManagedLocation()}/TSML.dll");
 
             ReturnState();
             RefreshButtonStates();
@@ -145,7 +147,7 @@ namespace Installer
 
         private string GetPluginDirectory()
         {
-            return $"{AbsoluteInstallDirectory}/${PLUGIN_DIRECTORY}";
+            return $"{AbsoluteInstallDirectory}/{PLUGIN_DIRECTORY}";
         }
 
         private string GetAbsoluteInstallDirectory()
@@ -186,7 +188,9 @@ namespace Installer
             AssemblyDefinition asm = AssemblyDefinition.ReadAssembly(GetAssemblyLocation());
             ModuleDefinition mod = asm.MainModule;
 
-            return Util.GetDefinition(mod.Types, "TSML.Core", true) != null;
+            bool isInstalled = Util.GetDefinition(mod.Types, "TSML.Core", true) != null;
+            asm.Dispose();
+            return isInstalled;
         }
 
         private void RefreshButtonStates()
@@ -286,9 +290,18 @@ namespace Installer
             AssemblyDefinition asmDef = AssemblyDefinition.ReadAssembly(GetAssemblyLocation());
             ModuleDefinition mainModule = asmDef.MainModule;
 
-            InjectionMethod imOnEnable = new InjectionMethod(mainModule, "Placemaker.BootMaster", "OnEnable");
-            MethodReference mrInit = mainModule.ImportReference(asm.GetType("TSML.Core").GetMethod("Init", new Type[] { }));
-            imOnEnable.MethodDef.Body.Instructions.Insert(3, imOnEnable.MethodDef.Body.GetILProcessor().Create(OpCodes.Call, mrInit));
+            // bootmaster on enable
+            {
+                InjectionMethod method = new InjectionMethod(mainModule, "Placemaker.BootMaster", "OnEnable");
+                MethodReference methodCall = mainModule.ImportReference(asm.GetType("TSML.Core").GetMethod("Init", new Type[] { }));
+                method.MethodDef.Body.Instructions.Insert(3, method.MethodDef.Body.GetILProcessor().Create(OpCodes.Call, methodCall));
+            }
+
+            // groundclicker add click
+            {
+                InjectionMethod method = new InjectionMethod(mainModule, "Placemaker.GroundClicker", "AddClick");
+                Util.InsertEventHandlerBefore(asm, asmDef, method, "TSML.Event.EventGroundClickerAddClick", new Type[] { asm.GetType("Placemaker.GroundClicker") });
+            }
 
             string newDll = $"{dll}.new";
             asmDef.Write(newDll);
