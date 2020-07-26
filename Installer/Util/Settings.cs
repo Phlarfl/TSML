@@ -1,10 +1,10 @@
 ﻿using System.Collections.Generic;
 
-namespace Installer
+namespace Installer.Util
 {
     public class Settings
     {
-        public int[] version;
-        public List<Plugin> modlist;
+        public int[] Version;
+        public List<PluginItem> ModList;
     }
 }

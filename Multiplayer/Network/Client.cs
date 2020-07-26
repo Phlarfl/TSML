@@ -44,10 +44,10 @@ namespace Multiplayer.Network
 
         private void OnEvent(Event e)
         {
-            if (typeof(EventGroundClickerAddClick).IsAssignableFrom(e.GetType()))
+            if (e is EventGroundClickerAddClick @event)
             {
                 WorldMaster master = BootMaster.instance.worldMaster;
-                GroundClicker gc = ((EventGroundClickerAddClick)e).GroundClicker;
+                GroundClicker gc = @event.GroundClicker;
 
                 PacketAddVoxel packetAddVoxel = new PacketAddVoxel(client)
                 {

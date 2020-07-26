@@ -1,16 +1,8 @@
-﻿using ILRepacking;
-using Microsoft.Win32;
-using Mono.Cecil;
-using Mono.Cecil.Cil;
-using Placemaker;
+﻿using Installer.Injection;
+using Installer.Util;
 using System;
 using System.Collections.Generic;
-using System.ComponentModel;
-using System.Diagnostics;
 using System.IO;
-using System.Linq;
-using System.Net;
-using System.Reflection;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -18,96 +10,116 @@ using TSML;
 
 namespace Installer
 {
-    /// <summary>
-    /// Interaction logic for MainWindow.xaml
-    /// </summary>
     public partial class MainWindow : Window
     {
-        private const string GAME = "Townscaper";
-        private readonly int[] VERSION = new int[] { 1, 0, 0 };
-
-        private const string SETTINGS_URL = "https://gist.github.com/Phlarfl/7e19181c4a2d3802d88c73bbd000ebf1/raw";
-        private const string STEAM_REGISTRY = @"HKEY_CURRENT_USER\Software\Valve\Steam";
-        private const string STEAM_CONFIG = "config/config.vdf";
-
-        private const string ASSEMBLY_LIB = "Assembly-CSharp.dll";
-
-        private readonly string INSTALL_DIRECTORY = $"steamapps/common/{GAME}";
-        private readonly string MANAGED_DIRECTORY = $"{GAME}_Data/Managed";
-
-        private const string PLUGIN_DIRECTORY = "plugins";
-        private const string PLUGIN_EXT = "dll";
-
-        private bool Reinstalling = false;
-
-        private readonly string AbsoluteInstallDirectory;
-
         private readonly Dictionary<Control, bool> States = new Dictionary<Control, bool>();
+
+        private Updater Updater { get; set; }
 
         public MainWindow()
         {
             InitializeComponent();
 
-            using (var client = new WebClient())
+            Updater = new Updater(this);
+            Updater.CheckInstallerVersion();
+
+            try
             {
-                client.DownloadStringCompleted += OnSettingsDownloadComplete;
-                client.DownloadStringAsync(new Uri(SETTINGS_URL));
-            }
-             
-            AbsoluteInstallDirectory = GetAbsoluteInstallDirectory();
-            if (AbsoluteInstallDirectory == null)
+                FileHelper.Init();
+            } catch (SteamPathNotFoundException e)
             {
-                MessageBox.Show($"Failed to find install directory for {GAME}. Please make sure you've installed the game first");
+                MessageBox.Show($"{e.Message}\r\nPlease make sure you've installed the game first");
                 Close();
                 return;
             }
 
             RefreshButtonStates();
-            RefreshMods();
             RefreshInstalled();
+            RefreshMods();
         }
 
         private void BtnInstallModLoader_Click(object sender, RoutedEventArgs e)
         {
             ChangeState(false);
-            PgbLoad.Value = 25;
+            PgbLoad.Value = 1;
+            PgbLoad.IsIndeterminate = false;
             RefreshButtonStates();
 
             new Thread(() =>
             {
-                Inject();
+                InjectHelper.InstallModLoader(this);
+                Dispatcher.Invoke(() =>
+                {
+                    PgbLoad.Value = 0;
+                    PgbLoad.IsIndeterminate = false;
+                    RefreshButtonStates();
+                    RefreshInstalled();
+                });
             }).Start();
-
-            PgbLoad.IsIndeterminate = false;
-            PgbLoad.Value = 0;
-            RefreshButtonStates();
         }
 
         private void BtnUninstallModLoader_Click(object sender, RoutedEventArgs e)
         {
             ChangeState(false);
 
-            File.Copy(GetAssemblyBackupLocation(), GetAssemblyLocation(), true);
-            if (File.Exists(GetAssemblyBackupLocation()))
-                File.Delete(GetAssemblyBackupLocation());
-            if (File.Exists($"{GetManagedLocation()}/TSML.dll"))
-                File.Delete($"{GetManagedLocation()}/TSML.dll");
+            var backup = FileHelper.GetAssemblyBackupFile();
+            if (File.Exists(backup))
+            {
+                File.Copy(backup, FileHelper.GetAssemblyFile(), true);
+                File.Delete(backup);
+            } else
+            {
+                MessageBox.Show("Failed to find original game files, please reinstall the game to uninstall Townscaper Mod Loader");
+                Close();
+                return;
+            }
 
             ReturnState();
             RefreshButtonStates();
 
             LbxInstalled.Items.Clear();
-            Reinstalling = true;
         }
 
         private void BtnInstallMod_Click(object sender, RoutedEventArgs e)
         {
-
+            var plugin = LbxMods.SelectedItem as PluginItem;
+            if (plugin == null)
+            {
+                MessageBox.Show("You must select a plugin to install");
+                return;
+            }
+            if (!Directory.Exists(FileHelper.GetPluginDirectory()))
+                Directory.CreateDirectory(FileHelper.GetPluginDirectory());
+            PgbLoad.IsIndeterminate = true;
+            RefreshButtonStates();
+            Updater.DownloadMod(plugin, () =>
+            {
+                PgbLoad.Value = 0;
+                PgbLoad.IsIndeterminate = false;
+                RefreshButtonStates();
+                RefreshInstalled();
+            }, () =>
+            {
+                PgbLoad.Value = 0;
+                PgbLoad.IsIndeterminate = false;
+                RefreshButtonStates();
+                MessageBox.Show($"Failed to download {plugin.Name} v{plugin.Version[0]}.{plugin.Version[1]}.{plugin.Version[2]}");
+            });
         }
 
         private void BtnUninstallMod_Click(object sender, RoutedEventArgs e)
         {
-
+            var plugin = LbxInstalled.SelectedItem as PluginItem;
+            if (plugin == null)
+            {
+                MessageBox.Show("You must select an plugin to uninstall");
+                return;
+            }
+            if (File.Exists(plugin.Download))
+                File.Delete(plugin.Download);
+            if (LbxInstalled.Items.Count > 0) LbxInstalled.SelectedIndex = Math.Min(Math.Max(0, LbxInstalled.SelectedIndex), LbxInstalled.Items.Count - 1);
+            if (LbxInstalled.SelectedIndex == -1) BtnUninstallMod.IsEnabled = false;
+            RefreshInstalled();
         }
 
         private void BtnRefreshMods_Click(object sender, RoutedEventArgs e)
@@ -130,77 +142,14 @@ namespace Installer
             BtnUninstallMod.IsEnabled = LbxInstalled.SelectedItem != null;
         }
 
-        private string GetManagedLocation()
+        public void RefreshButtonStates()
         {
-            return $"{AbsoluteInstallDirectory}/{MANAGED_DIRECTORY}";
-        }
-
-        private string GetAssemblyLocation()
-        {
-            return $"{GetManagedLocation()}/{ASSEMBLY_LIB}";
-        }
-
-        private string GetAssemblyBackupLocation()
-        {
-            return $"{GetAssemblyLocation()}.bac";
-        }
-
-        private string GetPluginDirectory()
-        {
-            return $"{AbsoluteInstallDirectory}/{PLUGIN_DIRECTORY}";
-        }
-
-        private string GetAbsoluteInstallDirectory()
-        {
-            string steam = Registry.GetValue($"{STEAM_REGISTRY}", "SteamPath", null)?.ToString();
-            if (steam == null)
-                return null;
-
-            List<string> paths = new List<string>
-            {
-                steam
-            };
-
-            string[] lines = File.ReadAllLines($"{steam}/{STEAM_CONFIG}");
-            VDFPopulate(paths, lines, 1);
-            foreach (var path in paths)
-                if (Directory.Exists($"{path}/{INSTALL_DIRECTORY}/{MANAGED_DIRECTORY}") && File.Exists($"{path}/{INSTALL_DIRECTORY}/{MANAGED_DIRECTORY}/{ASSEMBLY_LIB}"))
-                    return $"{path}/{INSTALL_DIRECTORY}";
-            return null;
-        }
-
-        private void VDFPopulate(List<string> paths, string[] lines, int index)
-        {
-            foreach (string line in lines)
-                if (line.Trim().StartsWith($"\"BaseInstallFolder_{index}\""))
-                {
-                    string path = line.Trim().Split('\t')[2];
-                    paths.Add(path.Substring(1, path.Length - 2).Replace("\\\\", "/"));
-                    VDFPopulate(paths, lines, index + 1);
-                }
-        }
-
-        private bool IsModLoaderInstalled()
-        {
-            if (!File.Exists(GetAssemblyLocation()))
-                return false;
-
-            AssemblyDefinition asm = AssemblyDefinition.ReadAssembly(GetAssemblyLocation());
-            ModuleDefinition mod = asm.MainModule;
-
-            bool isInstalled = Util.GetDefinition(mod.Types, "TSML.Core", true) != null;
-            asm.Dispose();
-            return isInstalled;
-        }
-
-        private void RefreshButtonStates()
-        {
-            if (PgbLoad.Value != 0 || PgbLoad.IsIndeterminate)
+            if (PgbLoad.Value % 100 != 0 || PgbLoad.IsIndeterminate)
             {
                 BtnInstallModLoader.IsEnabled = BtnInstallMod.IsEnabled = BtnUninstallModLoader.IsEnabled = BtnUninstallMod.IsEnabled = BtnRefreshInstalled.IsEnabled = BtnRefreshMods.IsEnabled = LbxInstalled.IsEnabled = LbxMods.IsEnabled = false;
                 return;
             }
-            bool Installed = IsModLoaderInstalled();
+            var Installed = InjectHelper.IsModLoaderInstalled();
             BtnInstallModLoader.IsEnabled = !Installed;
             BtnUninstallModLoader.IsEnabled = BtnRefreshMods.IsEnabled = BtnRefreshInstalled.IsEnabled = BtnInstallMod.IsEnabled = BtnUninstallMod.IsEnabled = LbxMods.IsEnabled = LbxInstalled.IsEnabled = Installed;
             if (LbxInstalled.Items.Count == 0)
@@ -211,7 +160,7 @@ namespace Installer
 
         private void ChangeState(bool state)
         {
-            List<Control> controls = new List<Control>
+            var controls = new List<Control>
             {
                 BtnInstallModLoader,
                 BtnUninstallModLoader,
@@ -226,7 +175,7 @@ namespace Installer
             };
 
             States.Clear();
-            foreach (Control control in controls)
+            foreach (var control in controls)
             {
                 States.Add(control, control.IsEnabled);
                 control.IsEnabled = state;
@@ -235,7 +184,7 @@ namespace Installer
 
         private void ReturnState()
         {
-            foreach (Control control in States.Keys)
+            foreach (var control in States.Keys)
                 control.IsEnabled = States[control];
         }
 
@@ -245,146 +194,27 @@ namespace Installer
             PgbLoad.IsIndeterminate = true;
             RefreshButtonStates();
 
-            using (var client = new WebClient())
-            {
-                client.DownloadStringCompleted += OnStringDownloadComplete;
-                client.DownloadStringAsync(new Uri(SETTINGS_URL));
-            }
+            List<PluginItem> pluginItems = new List<PluginItem>();
+            foreach (PluginItem plugin in LbxInstalled.Items)
+                pluginItems.Add(plugin);
+            Updater.CheckModVersions(pluginItems);
         }
 
         private void RefreshInstalled()
         {
             LbxInstalled.Items.Clear();
 
-            if (Directory.Exists(GetPluginDirectory()))
+            var pluginDirectory = FileHelper.GetPluginDirectory();
+            if (Directory.Exists(pluginDirectory))
             {
-                string[] files = Directory.GetFiles(GetPluginDirectory(), $"*.{PLUGIN_EXT}", SearchOption.TopDirectoryOnly);
-                foreach (string file in files)
-                    LbxInstalled.Items.Add(file.Substring(file.LastIndexOf('\\') + 1).Replace(".dll", ""));
-            }
-        }
-
-        private void Inject()
-        {
-            List<string> managed = Directory.GetFiles(GetManagedLocation()).Where(x => (x.Contains("UnityEngine") || x.Contains("AmplifyMotion") || x.Contains("Assembly-CSharp") || x.Contains("Mono.Security")) && x.EndsWith(".dll")).ToList();
-            foreach (string file in managed)
-                if (!Reinstalling || !File.Exists(file.Substring(file.LastIndexOf("\\") + 1)))
-                    File.Copy(file, file.Substring(file.LastIndexOf("\\") + 1), true);
-
-            Dispatcher.Invoke(new Action(delegate ()
-            {
-                PgbLoad.Value = 25;
-                RefreshButtonStates();
-            }));
-
-            string dll = GetAssemblyLocation();
-            string dllBackup = GetAssemblyBackupLocation();
-            Merge(dll, dllBackup, $"./TSML.dll");
-            Inject(dll);
-        }
-
-        private void Inject(string dll)
-        {
-            Assembly asm = Assembly.Load(File.ReadAllBytes(dll));
-
-            AssemblyDefinition asmDef = AssemblyDefinition.ReadAssembly(GetAssemblyLocation());
-            ModuleDefinition mainModule = asmDef.MainModule;
-
-            // bootmaster on enable
-            {
-                InjectionMethod method = new InjectionMethod(mainModule, "Placemaker.BootMaster", "OnEnable");
-                MethodReference methodCall = mainModule.ImportReference(asm.GetType("TSML.Core").GetMethod("Init", new Type[] { }));
-                method.MethodDef.Body.Instructions.Insert(3, method.MethodDef.Body.GetILProcessor().Create(OpCodes.Call, methodCall));
-            }
-
-            // groundclicker add click
-            {
-                InjectionMethod method = new InjectionMethod(mainModule, "Placemaker.GroundClicker", "AddClick");
-                Util.InsertEventHandlerBefore(asm, asmDef, method, "TSML.Event.EventGroundClickerAddClick", new Type[] { asm.GetType("Placemaker.GroundClicker") });
-            }
-
-            string newDll = $"{dll}.new";
-            asmDef.Write(newDll);
-            asmDef.Dispose();
-
-            File.Copy(newDll, dll, true);
-            File.Delete(newDll);
-
-            Dispatcher.Invoke(new Action(delegate ()
-            {
-                PgbLoad.IsIndeterminate = false;
-                PgbLoad.Value = 0;
-                RefreshButtonStates();
-            }));
-        }
-
-        private void Merge(string dll, string dllBackup, string modloader)
-        {
-            AssemblyDefinition asmDef = AssemblyDefinition.ReadAssembly(dll);
-            ModuleDefinition mainModule = asmDef.MainModule;
-
-            if (Util.GetDefinition(mainModule.Types, "TSML.Core", true) == null)
-                File.Copy(dll, dllBackup, true);
-
-            asmDef.Dispose();
-
-            var options = new RepackOptions
-            {
-                OutputFile = dll,
-                InputAssemblies = new[]
+                var files = Directory.GetFiles(pluginDirectory, $"*.dll", SearchOption.TopDirectoryOnly);
+                foreach (var file in files)
                 {
-                    dllBackup, modloader
-                },
-                SearchDirectories = new List<string>().AsEnumerable(),
-                TargetKind = ILRepack.Kind.Dll
-            };
-
-            var repack = new ILRepack(options);
-            repack.Repack();
-
-            Dispatcher.Invoke(new Action(delegate ()
-            {
-                PgbLoad.Value = 75;
-                RefreshButtonStates();
-            }));
-        }
-
-        private void OnStringDownloadComplete(object sender, DownloadStringCompletedEventArgs e)
-        {
-            string json = e.Result.ToString();
-            Settings settings = Newtonsoft.Json.JsonConvert.DeserializeObject<Settings>(json);
-            if (settings == null)
-                MessageBox.Show("Failed to parse mod list");
-            foreach (Plugin plugin in settings.modlist)
-                LbxMods.Items.Add(plugin);
-
-            PgbLoad.IsIndeterminate = false;
-            PgbLoad.Value = 0;
-            RefreshButtonStates();
-        }
-
-        private void OnFileDownloadComplete(object sender, AsyncCompletedEventArgs e)
-        {
-            PgbLoad.IsIndeterminate = false;
-            PgbLoad.Value = 0;
-            RefreshButtonStates();
-            RefreshInstalled();
-        }
-
-        private void OnSettingsDownloadComplete(object sender, DownloadStringCompletedEventArgs e)
-        {
-            string json = e.Result.ToString();
-            Settings settings = Newtonsoft.Json.JsonConvert.DeserializeObject<Settings>(json);
-            if (settings == null)
-                MessageBox.Show("Failed to parse settings");
-
-            if (settings.version[0] > VERSION[0]
-                || (settings.version[0] == VERSION[0] && settings.version[1] > VERSION[1])
-                || (settings.version[0] == VERSION[0] && settings.version[1] == VERSION[1] && settings.version[2] > VERSION[2]))
-            {
-                MessageBox.Show("There is a newer version of the TSML Installer, please update to get the latest features");
-                Process.Start("https://phlarfl.github.io/TSML");
-                Close();
+                    var plugin = InjectHelper.GetPlugin(file);
+                    if (plugin != null)
+                        LbxInstalled.Items.Add(plugin);
+                    else LbxInstalled.Items.Add(new PluginItem("Unknown Plugin", null, null, file, false, new Dependency[0]));
+                }
             }
         }
     }

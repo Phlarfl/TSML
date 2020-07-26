@@ -1,9 +1,4 @@
 ﻿using Mono.Cecil;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 
 namespace Installer
 {
@@ -21,8 +16,8 @@ namespace Installer
             ClassName = className;
             MethodName = methodName;
 
-            TypeDef = Util.GetDefinition(Module.Types, ClassName, true);
-            MethodDef = TypeDef == null ? null : Util.GetDefinition(TypeDef.Methods, MethodName, false);
+            TypeDef = Util.Util.GetDefinition(Module.Types, ClassName, true);
+            MethodDef = TypeDef == null ? null : Util.Util.GetDefinition(TypeDef.Methods, MethodName, false);
         }
     }
 }

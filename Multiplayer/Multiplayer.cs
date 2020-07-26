@@ -2,15 +2,12 @@
 using Multiplayer.Network;
 using Placemaker;
 using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
 using TSML;
 using UnityEngine;
 
 namespace Multiplayer
 {
+    [PluginDescriptor("Multiplayer", new[] { "Phlarfl" }, new[] { 1, 0, 0 })]
     public class Multiplayer : Plugin
     {
         public static Multiplayer GetInstance()
