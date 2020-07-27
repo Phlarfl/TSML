@@ -22,7 +22,7 @@ namespace Multiplayer.Network
         {
             Print($"Starting server on port {port} with {maxConnections} maximum connections");
 
-            NetPeerConfiguration config = new NetPeerConfiguration(Multiplayer.PLUGIN_IDENTIFIER)
+            var config = new NetPeerConfiguration(Multiplayer.PLUGIN_IDENTIFIER)
             {
                 MaximumConnections = maxConnections,
                 Port = port
@@ -56,31 +56,31 @@ namespace Multiplayer.Network
                         case NetIncomingMessageType.WarningMessage:
                         case NetIncomingMessageType.ErrorMessage:
                             {
-                                string message = incoming.ReadString();
+                                var message = incoming.ReadString();
                                 Print(message);
                             }
                             break;
 
                         case NetIncomingMessageType.StatusChanged:
                             {
-                                NetConnectionStatus status = (NetConnectionStatus)incoming.ReadByte();
-                                string reason = incoming.ReadString();
+                                var status = (NetConnectionStatus)incoming.ReadByte();
+                                var reason = incoming.ReadString();
 
                                 switch (status)
                                 {
                                     case NetConnectionStatus.Connected:
                                         {
-                                            NetIncomingMessage hailMessage = incoming.SenderConnection.RemoteHailMessage;
-                                            string name = hailMessage.ReadString();
+                                            var hailMessage = incoming.SenderConnection.RemoteHailMessage;
+                                            var name = hailMessage.ReadString();
                                             Print($"{name} joined the game");
 
                                             if (BootMaster.instance.worldMaster && BootMaster.instance.worldMaster.state == WorldMaster.State.Done)
                                             {
-                                                PacketWorld packetWorld = new PacketWorld(server)
+                                                var packetWorld = new PacketWorld(server)
                                                 {
                                                     WorldData = BootMaster.instance.worldMaster.GetSaveString()
                                                 };
-                                                NetOutgoingMessage outgoing = packetWorld.Serialize();
+                                                var outgoing = packetWorld.Serialize();
                                                 incoming.SenderConnection.SendMessage(outgoing, NetDeliveryMethod.ReliableOrdered, 0);
                                             }
                                         }
@@ -95,22 +95,35 @@ namespace Multiplayer.Network
                             break;
                         case NetIncomingMessageType.Data:
                             {
-                                PacketType packetType = (PacketType)incoming.ReadByte();
+                                var packetType = (PacketType)incoming.ReadByte();
                                 switch (packetType)
                                 {
                                     case PacketType.WORLD_DATA:
                                         {
-                                            PacketWorld packet = new PacketWorld(server);
+                                            var packet = new PacketWorld(server);
                                             packet.Deserialize(incoming);
                                         }
                                         break;
 
                                     case PacketType.ADD_VOXEL:
                                         {
-                                            PacketAddVoxel packet = new PacketAddVoxel(server);
+                                            var packet = new PacketAddVoxel(server);
                                             packet.Deserialize(incoming);
 
-                                            List<NetConnection> others = server.Connections;
+                                            var others = server.Connections;
+                                            others.Remove(incoming.SenderConnection);
+
+                                            if (others.Count > 0)
+                                                server.SendMessage(packet.Serialize(), others, NetDeliveryMethod.ReliableOrdered, 0);
+                                        }
+                                        break;
+
+                                    case PacketType.REMOVE_VOXEL:
+                                        {
+                                            var packet = new PacketRemoveVoxel(server);
+                                            packet.Deserialize(incoming);
+
+                                            var others = server.Connections;
                                             others.Remove(incoming.SenderConnection);
 
                                             if (others.Count > 0)

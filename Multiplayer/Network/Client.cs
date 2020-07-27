@@ -3,11 +3,9 @@ using Multiplayer.Network.Packet;
 using Multiplayer.Network.Packet.World;
 using Placemaker;
 using Placemaker.Quads;
-using System;
 using System.Collections.Generic;
 using System.Threading;
 using TSML.Event;
-using Unity.Mathematics;
 
 namespace Multiplayer.Network
 {
@@ -26,7 +24,7 @@ namespace Multiplayer.Network
         {
             Print($"Starting client, connecting to {ip}:{port}");
 
-            NetPeerConfiguration config = new NetPeerConfiguration(Multiplayer.PLUGIN_IDENTIFIER)
+            var config = new NetPeerConfiguration(Multiplayer.PLUGIN_IDENTIFIER)
             {
                 AutoFlushSendQueue = false
             };
@@ -36,7 +34,7 @@ namespace Multiplayer.Network
 
             client.RegisterReceivedCallback(new SendOrPostCallback(Update));
 
-            NetOutgoingMessage outgoing = client.CreateMessage(name);
+            var outgoing = client.CreateMessage(name);
             client.Connect(ip, port, outgoing);
 
             TSML.Event.EventHandler.Listeners += OnEvent;
@@ -44,12 +42,12 @@ namespace Multiplayer.Network
 
         private void OnEvent(Event e)
         {
-            if (e is EventGroundClickerAddClick @event)
+            var master = BootMaster.instance.worldMaster;
+            if (e is EventGroundClickerAddClick eventAddClick)
             {
-                WorldMaster master = BootMaster.instance.worldMaster;
-                GroundClicker gc = @event.GroundClicker;
+                var gc = eventAddClick.GroundClicker;
 
-                PacketAddVoxel packetAddVoxel = new PacketAddVoxel(client)
+                var packetAddVoxel = new PacketAddVoxel(client)
                 {
                     ValidAdd = master.hoverData.validAdd,
                     DestinationHeight = master.hoverData.dstHeight,
@@ -60,6 +58,20 @@ namespace Multiplayer.Network
                 };
                 client.SendMessage(packetAddVoxel.Serialize(), NetDeliveryMethod.ReliableOrdered);
                 client.FlushSendQueue(); 
+            } else if (e is EventGroundClickerRemoveClick eventRemoveClick)
+            {
+                var gc = eventRemoveClick.GroundClicker;
+
+                var packetRemoveVoxel = new PacketRemoveVoxel(client)
+                {
+                    ValidRemove = master.hoverData.validRemove,
+                    DestinationHeight = master.hoverData.dstHeight,
+                    HexPos = master.hoverData.dstVert.hexPos,
+                    PlanePos = master.hoverData.dstVert.planePos,
+                    VoxelPosition = master.hoverData.voxel.transform.position
+                };
+                client.SendMessage(packetRemoveVoxel.Serialize(), NetDeliveryMethod.ReliableOrdered);
+                client.FlushSendQueue();
             }
         }
 
@@ -85,15 +97,15 @@ namespace Multiplayer.Network
                     case NetIncomingMessageType.WarningMessage:
                     case NetIncomingMessageType.ErrorMessage:
                         {
-                            string message = incoming.ReadString();
+                            var message = incoming.ReadString();
                             Print(message);
                         }
                         break;
 
                     case NetIncomingMessageType.StatusChanged:
                         {
-                            NetConnectionStatus status = (NetConnectionStatus)incoming.ReadByte();
-                            string reason = incoming.ReadString();
+                            var status = (NetConnectionStatus)incoming.ReadByte();
+                            var reason = incoming.ReadString();
                             
                             switch (status)
                             {
@@ -113,12 +125,12 @@ namespace Multiplayer.Network
                         break;
                     case NetIncomingMessageType.Data:
                         {
-                            PacketType packetType = (PacketType)incoming.ReadByte();
+                            var packetType = (PacketType)incoming.ReadByte();
                             switch (packetType)
                             {
                                 case PacketType.WORLD_DATA:
                                     {
-                                        PacketWorld packet = new PacketWorld(client);
+                                        var packet = new PacketWorld(client);
                                         packet.Deserialize(incoming);
 
                                         if (BootMaster.instance.worldMaster)
@@ -128,18 +140,34 @@ namespace Multiplayer.Network
 
                                 case PacketType.ADD_VOXEL:
                                     {
-                                        PacketAddVoxel packet = new PacketAddVoxel(client);
+                                        var packet = new PacketAddVoxel(client);
                                         packet.Deserialize(incoming);
 
-                                        WorldMaster master = BootMaster.instance.worldMaster;
-                                        Maker maker = master.maker;
-                                        GroundClicker groundClicker = master.groundClicker;
+                                        var master = BootMaster.instance.worldMaster;
+                                        var maker = master.maker;
+                                        var groundClicker = master.groundClicker;
 
                                         if (packet.ValidAdd)
                                         {
-                                            Voxel voxel = AddClick(master, maker, packet);
+                                            var voxel = AddClick(master, maker, packet);
                                             groundClicker.lastAddedVoxel = voxel;
-                                            ClickEffect(master, packet, true, voxel);
+                                            master.clickEffect.Click(true, packet.PlanePos, packet.DestinationHeight, voxel.type);
+                                        }
+                                    }
+                                    break;
+
+                                case PacketType.REMOVE_VOXEL:
+                                    {
+                                        var packet = new PacketRemoveVoxel(client);
+                                        packet.Deserialize(incoming);
+
+                                        var master = BootMaster.instance.worldMaster;
+                                        var maker = master.maker;
+
+                                        if (packet.ValidRemove)
+                                        {
+                                            var voxel = RemoveClick(master, maker, packet);
+                                            master.clickEffect.Click(false, packet.PlanePos, packet.DestinationHeight, voxel.type);
                                         }
                                     }
                                     break;
@@ -154,8 +182,8 @@ namespace Multiplayer.Network
         private Voxel AddClick(WorldMaster master, Maker maker, PacketAddVoxel packet)
         {
             int dstHeight = packet.DestinationHeight;
-            VoxelType voxelType = packet.VoxelType;
-            Vert vert = new Vert()
+            var voxelType = packet.VoxelType;
+            var vert = new Vert()
             {
                 angle = packet.VertAngle,
                 hexPos = packet.HexPos
@@ -170,19 +198,26 @@ namespace Multiplayer.Network
             if (dstHeight == 0)
                 voxelType = VoxelType.Ground;
 
-            Voxel result = master.graph.AddVoxel(vert.hexPos, (byte)dstHeight, voxelType, true);
+            var result = master.graph.AddVoxel(vert.hexPos, (byte)dstHeight, voxelType, true);
             maker.AddAction(vert.hexPos, (byte)dstHeight, VoxelType.Empty, voxelType);
             maker.EndAction();
             return result;
         }
 
-        private void ClickEffect(WorldMaster master, PacketAddVoxel packet, bool add, Voxel voxel)
+        private Voxel RemoveClick(WorldMaster master, Maker maker, PacketRemoveVoxel packet)
         {
-            // todo: add source stuff for packet for remove, or make this method only on add
-            // and add a new method for remove
-            float2 v = add ? packet.PlanePos : packet.PlanePos;
-            int height = add ? packet.DestinationHeight : packet.DestinationHeight;
-            master.clickEffect.Click(add, v, height, voxel.type);
+            maker.BeginNewAction();
+            Voxel result = null;
+            foreach (var voxel in UnityEngine.Object.FindObjectsOfType<Voxel>())
+                if (voxel.transform.position.Equals(packet.VoxelPosition))
+                {
+                    result = voxel;
+                    break;
+                }
+            maker.AddAction(packet.HexPos, result.height, result.type, VoxelType.Empty);
+            master.graph.RemoveVoxel(result);
+            maker.EndAction();
+            return result;
         }
     }
 }

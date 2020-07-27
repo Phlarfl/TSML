@@ -43,6 +43,7 @@ namespace Installer.Injection
                             var version = new int[versionArray.Length];
                             for (var i = 0; i < authorsArray.Length; i++) authors[i] = authorsArray[i].Value.ToString();
                             for (var i = 0; i < versionArray.Length; i++) version[i] = int.Parse(versionArray[i].Value.ToString());
+                            assemblyDefinition.Dispose();
                             return new PluginItem(name, authors, version, file, false, new Dependency[0]);
                         }
                     }

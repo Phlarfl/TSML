@@ -7,7 +7,7 @@ using UnityEngine;
 
 namespace Multiplayer
 {
-    [PluginDescriptor("Multiplayer", new[] { "Phlarfl" }, new[] { 1, 0, 0 })]
+    [PluginDescriptor("Multiplayer", new[] { "Phlarfl" }, new[] { 1, 1, 0 })]
     public class Multiplayer : Plugin
     {
         public static Multiplayer GetInstance()
